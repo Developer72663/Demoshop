@@ -51,11 +51,10 @@ const SellerSchema = new Schema({
     }
 }, { timestamps: true });
 
-// ====================== INDEXES ======================
 SellerSchema.index({ email: 1 });
 SellerSchema.index({ googleId: 1 });
 
-// ====================== STATIC METHODS ======================
+// Find or create seller from Google profile
 SellerSchema.static("findOrCreateGoogleSeller", async function (profile, extraData = {}) {
     try {
         const email = profile.emails[0].value.toLowerCase();
@@ -67,14 +66,12 @@ SellerSchema.static("findOrCreateGoogleSeller", async function (profile, extraDa
             seller = await this.findOne({ email });
 
             if (seller) {
-                // Link Google to existing seller account
                 seller.googleId = googleId;
                 if (profile.photos && profile.photos[0] && profile.photos[0].value) {
                     seller.profileImageURL = profile.photos[0].value;
                 }
                 await seller.save();
             } else {
-                // Create new seller
                 seller = await this.create({
                     fullName: profile.displayName || "Google Seller",
                     email: email,
@@ -82,7 +79,7 @@ SellerSchema.static("findOrCreateGoogleSeller", async function (profile, extraDa
                     profileImageURL: (profile.photos && profile.photos[0] && profile.photos[0].value)
                         ? profile.photos[0].value
                         : "/imgs/default.png",
-                    storeName: extraData.storeName || profile.displayName + "'s Store",
+                    storeName: extraData.storeName || (profile.displayName + "'s Store"),
                     storeDescription: extraData.storeDescription || "",
                     phone: extraData.phone || "",
                     address: extraData.address || ""
@@ -92,12 +89,11 @@ SellerSchema.static("findOrCreateGoogleSeller", async function (profile, extraDa
 
         return seller;
     } catch (error) {
-        console.error("❌ findOrCreateGoogleSeller Error:", error.message);
+        console.error("findOrCreateGoogleSeller Error:", error.message);
         throw error;
     }
 });
 
-// ====================== CREATE MODEL ======================
 const Seller = mongoose.models.seller || model("seller", SellerSchema);
 
 module.exports = Seller;
