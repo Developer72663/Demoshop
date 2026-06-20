@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seller Login - DemoShop</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .form-container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); width: 100%; max-width: 400px; }
+        .form-container h2 { text-align: center; color: #2c3e50; margin-bottom: 30px; font-size: 28px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
+        .form-group input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 14px; transition: border-color 0.3s; }
+        .form-group input:focus { outline: none; border-color: #27ae60; }
+        .btn-submit { width: 100%; padding: 14px; background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.3s; }
+        .btn-submit:hover { transform: translateY(-2px); }
+        .error { color: #e74c3c; text-align: center; margin-bottom: 15px; font-size: 14px; }
+        .link { text-align: center; margin-top: 20px; color: #666; }
+        .link a { color: #27ae60; text-decoration: none; font-weight: 500; }
+        .link a:hover { text-decoration: underline; }
+        .brand { text-align: center; margin-bottom: 20px; }
+        .brand a { color: #27ae60; font-size: 24px; font-weight: bold; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <div class="brand"><a href="/">DemoShop</a></div>
+        <h2>Seller Login</h2>
+        <% if (typeof error !== 'undefined' && error) { %>
+            <div class="error"><%= error %></div>
+        <% } %>
+        <form action="/seller/login" method="POST">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" required placeholder="Enter seller email">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required placeholder="Enter password">
+            </div>
+            <button type="submit" class="btn-submit">Login</button>
+        </form>
+        <div class="link">
+            New seller? <a href="/seller/register">Register here</a><br><br>
+            Are you a buyer? <a href="/signin">Buyer Login</a>
+        </div>
+    </div>
+</body>
+</html>
