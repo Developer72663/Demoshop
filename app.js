@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 const app = express();
 
@@ -13,18 +15,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Session
 app.use(session({
-    secret: 'demoshop-secret-key-2024',
+    secret: process.env.SESSION_SECRET || 'demoshop-secret-key-2024',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 1 day
+    cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
+
+// Passport initialization
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Set view engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 // MongoDB Connection
-mongoose.connect('mongodb://localhost:27017/demoshop', {
+const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/demoshop';
+mongoose.connect(mongoURI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(() => console.log('MongoDB Connected'))
@@ -36,7 +43,9 @@ mongoose.connect('mongodb://localhost:27017/demoshop', {
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String },
+    googleId: { type: String },
+    avatar: { type: String },
     createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
@@ -75,6 +84,43 @@ const cartSchema = new mongoose.Schema({
 });
 const Cart = mongoose.model('Cart', cartSchema);
 
+// ==================== PASSPORT GOOGLE OAUTH ====================
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID || 'your-google-client-id',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'your-google-client-secret',
+    callbackURL: process.env.GOOGLE_CALLBACK_URL || '/user/auth/google/callback'
+}, async (accessToken, refreshToken, profile, done) => {
+    try {
+        let user = await User.findOne({ googleId: profile.id });
+        if (!user) {
+            user = new User({
+                googleId: profile.id,
+                name: profile.displayName,
+                email: profile.emails[0].value,
+                avatar: profile.photos[0].value
+            });
+            await user.save();
+        }
+        done(null, user);
+    } catch (err) {
+        done(err, null);
+    }
+}));
+
+passport.serializeUser((user, done) => {
+    done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+    try {
+        const user = await User.findById(id);
+        done(null, user);
+    } catch (err) {
+        done(err, null);
+    }
+});
+
 // ==================== MIDDLEWARE ====================
 
 // Pass user/seller to all views
@@ -94,6 +140,27 @@ const requireSellerAuth = (req, res, next) => {
     if (!req.session.seller) return res.redirect('/seller/login');
     next();
 };
+
+// ==================== GOOGLE AUTH ROUTES ====================
+
+// Google Auth - Initiate
+app.get('/user/auth/google',
+    passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+// Google Auth - Callback
+app.get('/user/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/signin' }),
+    (req, res) => {
+        req.session.user = {
+            id: req.user._id,
+            name: req.user.name,
+            email: req.user.email,
+            avatar: req.user.avatar
+        };
+        res.redirect('/');
+    }
+);
 
 // ==================== HOME ROUTE ====================
 
@@ -226,10 +293,7 @@ app.get('/seller/dashboard', requireSellerAuth, async (req, res) => {
     try {
         const products = await Product.find({ seller: req.session.seller.id });
         const sellerData = await Seller.findById(req.session.seller.id);
-
-        // Calculate total income
         const totalIncome = products.reduce((sum, p) => sum + (p.price * p.stock), 0);
-
         res.render('sellerHome', {
             user: null,
             seller: req.session.seller,
