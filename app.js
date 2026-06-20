@@ -3,7 +3,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const passport = require("passport");
-const SellerRoute = require("./routes/seller");
+const SellerRoute = require("./routes/Seller");
 
 require("dotenv").config();
 
