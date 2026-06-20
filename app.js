@@ -354,7 +354,7 @@ app.post('/seller/register', async (req, res) => {
 
 app.get('/seller/login', (req, res) => {
     if (req.session.seller) return res.redirect('/seller/dashboard');
-    res.render('seller-login', { error: null, user: null, seller: null });
+    res.render('sellerLogin', { error: null, user: null, seller: null });
 });
 
 app.post('/seller/login', async (req, res) => {
@@ -362,7 +362,7 @@ app.post('/seller/login', async (req, res) => {
         const { email, password } = req.body;
         const seller = await Seller.findOne({ email });
         if (!seller || !(await bcrypt.compare(password, seller.password))) {
-            return res.render('seller-login', { error: 'Invalid credentials', user: null, seller: null });
+            return res.render('sellerLogin', { error: 'Invalid credentials', user: null, seller: null });
         }
         req.session.seller = { 
             id: seller._id, 
@@ -372,7 +372,7 @@ app.post('/seller/login', async (req, res) => {
         };
         res.redirect('/seller/dashboard');
     } catch (err) {
-        res.render('seller-login', { error: 'Login failed', user: null, seller: null });
+        res.render('sellerLogin', { error: 'Login failed', user: null, seller: null });
     }
 });
 
