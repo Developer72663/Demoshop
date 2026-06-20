@@ -2,16 +2,14 @@ const { Router } = require("express");
 const passport = require("passport");
 const Seller = require("../models/Seller");
 const { creatTokenForUser } = require("../services/authentication");
-const { restrictToLoggedInUserOnly } = require("../middlewares/authentication");
 
 const router = Router();
-
-// ====================== GOOGLE SELLER STRATEGY ======================
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
-// Store pending seller data during OAuth flow (in-memory, use Redis in production)
-const pendingSellers = new Map();
+// In-memory store for pending seller registration data (use Redis in production)
+const pendingSellerData = new Map();
 
+// ====================== GOOGLE SELLER STRATEGY ======================
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     passport.use(
         "google-seller",
@@ -20,13 +18,20 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
                 clientID: process.env.GOOGLE_CLIENT_ID,
                 clientSecret: process.env.GOOGLE_CLIENT_SECRET,
                 callbackURL: process.env.GOOGLE_SELLER_CALLBACK_URL || "http://localhost:8000/seller/auth/google/callback",
+                passReqToCallback: true
             },
-            async (accessToken, refreshToken, profile, done) => {
+            async (req, accessToken, refreshToken, profile, done) => {
                 try {
-                    const state = profile._json.state || "{}";
-                    const extraData = JSON.parse(state);
+                    // Get pending store data from session/state
+                    const state = req.query.state;
+                    let extraData = {};
 
-                    const seller = await Seller.findOrCreateGoogleUser(profile, extraData);
+                    if (state && pendingSellerData.has(state)) {
+                        extraData = pendingSellerData.get(state);
+                        pendingSellerData.delete(state); // clean up
+                    }
+
+                    const seller = await Seller.findOrCreateGoogleSeller(profile, extraData);
                     return done(null, seller);
                 } catch (err) {
                     console.error("Google Seller Strategy Error:", err);
@@ -39,37 +44,36 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ====================== GET SELLER REGISTER PAGE ======================
 router.get("/register", (req, res) => {
-    if (req.user && req.user.role === "SELLER") {
-        return res.redirect("/seller/dashboard");
-    }
-    res.render("seller-register", { 
-        error: null,
-        user: req.user || null
-    });
+    res.render("seller-register", { error: null });
 });
 
-// ====================== POST SELLER REGISTER (with Google OAuth) ======================
-// Step 1: Collect store details and redirect to Google OAuth
+// ====================== POST SELLER REGISTER (Step 1: Collect store data) ======================
 router.post("/register", async (req, res) => {
     const { storeName, storeDescription, phone, address } = req.body;
 
     if (!storeName) {
-        return res.status(400).json({
-            success: false,
-            message: "Store name is required"
+        return res.status(400).render("seller-register", { 
+            error: "Store name is required" 
         });
     }
 
-    // Store pending data in a temporary cookie/session approach
-    // We'll pass it via state parameter in Google OAuth
-    const stateData = Buffer.from(JSON.stringify({
+    // Generate a temporary key to store seller data
+    const tempKey = require("crypto").randomBytes(16).toString("hex");
+
+    pendingSellerData.set(tempKey, {
         storeName: storeName.trim(),
         storeDescription: storeDescription || "",
         phone: phone || "",
         address: address || ""
-    })).toString("base64");
+    });
 
-    res.redirect(`/seller/auth/google?state=${encodeURIComponent(stateData)}`);
+    // Clean up old entries after 10 minutes
+    setTimeout(() => {
+        pendingSellerData.delete(tempKey);
+    }, 10 * 60 * 1000);
+
+    // Redirect to Google OAuth with the temp key as state
+    res.redirect(`/seller/auth/google?state=${tempKey}`);
 });
 
 // ====================== GOOGLE SELLER AUTH ROUTES ======================
@@ -98,37 +102,13 @@ router.get("/auth/google/callback",
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
-        res.redirect("/seller/dashboard?registered=success");
+        res.redirect("/seller/register/success");
     }
 );
 
-// ====================== GET SELLER DASHBOARD ======================
-router.get("/dashboard", restrictToLoggedInUserOnly, async (req, res) => {
-    if (!req.user || req.user.role !== "SELLER") {
-        return res.status(403).send("Access Denied: Sellers Only");
-    }
-
-    try {
-        const seller = await Seller.findById(req.user._id);
-        if (!seller) {
-            return res.redirect("/seller/register");
-        }
-
-        res.render("sellerHome", {
-            title: "Seller Dashboard",
-            seller: seller,
-            user: req.user
-        });
-    } catch (error) {
-        console.error("Dashboard Error:", error.message);
-        res.status(500).send("Internal Server Error");
-    }
-});
-
-// ====================== GET SELLER LOGOUT ======================
-router.get("/logout", (req, res) => {
-    res.clearCookie("token");
-    res.redirect("/");
+// ====================== REGISTRATION SUCCESS PAGE ======================
+router.get("/register/success", (req, res) => {
+    res.render("seller-register-success", { user: req.user || null });
 });
 
 module.exports = router;
