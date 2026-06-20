@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const passport = require("passport");
 const SellerRoute = require("./routes/seller");
-app.use("/seller", SellerRoute);
+
 require("dotenv").config();
 
 const UserRoute = require("./routes/User");
@@ -48,6 +48,7 @@ app.use("/api/", apiLimiter);
 // ====================== ROUTES ======================
 app.use("/user", UserRoute);
 app.use("/user", GoogleAuthRoute);
+app.use("/seller", SellerRoute);
 
 // ====================== HOME ROUTE ======================
 app.get("/", (req, res) => {
