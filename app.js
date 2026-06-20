@@ -52,11 +52,14 @@ const User = mongoose.model('User', userSchema);
 
 // Seller Schema
 const sellerSchema = new mongoose.Schema({
-    shopName: { type: String, required: true },
+    shopName: { type: String },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String },
+    googleId: { type: String },
+    avatar: { type: String },
     phone: { type: String },
     address: { type: String },
+    isProfileComplete: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 const Seller = mongoose.model('Seller', sellerSchema);
@@ -84,12 +87,32 @@ const cartSchema = new mongoose.Schema({
 });
 const Cart = mongoose.model('Cart', cartSchema);
 
-// ==================== PASSPORT GOOGLE OAUTH ====================
+// ==================== PASSPORT SERIALIZATION ====================
 
-passport.use(new GoogleStrategy({
+passport.serializeUser((user, done) => {
+    done(null, { id: user.id, type: user instanceof Seller ? 'seller' : 'user' });
+});
+
+passport.deserializeUser(async (obj, done) => {
+    try {
+        if (obj.type === 'seller') {
+            const seller = await Seller.findById(obj.id);
+            done(null, seller);
+        } else {
+            const user = await User.findById(obj.id);
+            done(null, user);
+        }
+    } catch (err) {
+        done(err, null);
+    }
+});
+
+// ==================== USER GOOGLE OAUTH STRATEGY ====================
+
+passport.use('user-google', new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID || 'your-google-client-id',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'your-google-client-secret',
-    callbackURL: process.env.GOOGLE_CALLBACK_URL || '/user/auth/google/callback'
+    callbackURL: process.env.GOOGLE_USER_CALLBACK || '/user/auth/google/callback'
 }, async (accessToken, refreshToken, profile, done) => {
     try {
         let user = await User.findOne({ googleId: profile.id });
@@ -108,29 +131,39 @@ passport.use(new GoogleStrategy({
     }
 }));
 
-passport.serializeUser((user, done) => {
-    done(null, user.id);
-});
+// ==================== SELLER GOOGLE OAUTH STRATEGY ====================
 
-passport.deserializeUser(async (id, done) => {
+passport.use('seller-google', new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID || 'your-google-client-id',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'your-google-client-secret',
+    callbackURL: process.env.GOOGLE_SELLER_CALLBACK || '/seller/auth/google/callback'
+}, async (accessToken, refreshToken, profile, done) => {
     try {
-        const user = await User.findById(id);
-        done(null, user);
+        let seller = await Seller.findOne({ googleId: profile.id });
+        if (!seller) {
+            seller = new Seller({
+                googleId: profile.id,
+                shopName: profile.displayName + ' Shop',
+                email: profile.emails[0].value,
+                avatar: profile.photos[0].value,
+                isProfileComplete: false
+            });
+            await seller.save();
+        }
+        done(null, seller);
     } catch (err) {
         done(err, null);
     }
-});
+}));
 
 // ==================== MIDDLEWARE ====================
 
-// Pass user/seller to all views
 app.use((req, res, next) => {
     res.locals.user = req.session.user || null;
     res.locals.seller = req.session.seller || null;
     next();
 });
 
-// Auth middleware
 const requireUserAuth = (req, res, next) => {
     if (!req.session.user) return res.redirect('/signin');
     next();
@@ -141,16 +174,14 @@ const requireSellerAuth = (req, res, next) => {
     next();
 };
 
-// ==================== GOOGLE AUTH ROUTES ====================
+// ==================== USER GOOGLE AUTH ROUTES ====================
 
-// Google Auth - Initiate
 app.get('/user/auth/google',
-    passport.authenticate('google', { scope: ['profile', 'email'] })
+    passport.authenticate('user-google', { scope: ['profile', 'email'] })
 );
 
-// Google Auth - Callback
 app.get('/user/auth/google/callback',
-    passport.authenticate('google', { failureRedirect: '/signin' }),
+    passport.authenticate('user-google', { failureRedirect: '/signin' }),
     (req, res) => {
         req.session.user = {
             id: req.user._id,
@@ -161,6 +192,60 @@ app.get('/user/auth/google/callback',
         res.redirect('/');
     }
 );
+
+// ==================== SELLER GOOGLE AUTH ROUTES ====================
+
+app.get('/seller/auth/google',
+    passport.authenticate('seller-google', { scope: ['profile', 'email'] })
+);
+
+app.get('/seller/auth/google/callback',
+    passport.authenticate('seller-google', { failureRedirect: '/seller/login' }),
+    (req, res) => {
+        req.session.seller = {
+            id: req.user._id,
+            shopName: req.user.shopName,
+            email: req.user.email,
+            avatar: req.user.avatar,
+            isProfileComplete: req.user.isProfileComplete
+        };
+        // If profile not complete, redirect to complete profile
+        if (!req.user.isProfileComplete) {
+            return res.redirect('/seller/complete-profile');
+        }
+        res.redirect('/seller/dashboard');
+    }
+);
+
+// ==================== SELLER COMPLETE PROFILE (After Google Login) ====================
+
+app.get('/seller/complete-profile', (req, res) => {
+    if (!req.session.seller) return res.redirect('/seller/login');
+    res.render('seller-complete-profile', { 
+        error: null, 
+        seller: req.session.seller 
+    });
+});
+
+app.post('/seller/complete-profile', async (req, res) => {
+    try {
+        const { shopName, phone, address } = req.body;
+        await Seller.findByIdAndUpdate(req.session.seller.id, {
+            shopName,
+            phone,
+            address,
+            isProfileComplete: true
+        });
+        req.session.seller.shopName = shopName;
+        req.session.seller.isProfileComplete = true;
+        res.redirect('/seller/dashboard');
+    } catch (err) {
+        res.render('seller-complete-profile', { 
+            error: 'Failed to update profile', 
+            seller: req.session.seller 
+        });
+    }
+});
 
 // ==================== HOME ROUTE ====================
 
@@ -180,7 +265,6 @@ app.get('/', async (req, res) => {
 
 // ==================== USER AUTH ROUTES ====================
 
-// Sign Up
 app.get('/signup', (req, res) => {
     if (req.session.user) return res.redirect('/');
     res.render('signup', { error: null, user: null, seller: null });
@@ -203,7 +287,6 @@ app.post('/signup', async (req, res) => {
     }
 });
 
-// Sign In
 app.get('/signin', (req, res) => {
     if (req.session.user) return res.redirect('/');
     res.render('signin', { error: null, user: null, seller: null });
@@ -223,13 +306,11 @@ app.post('/signin', async (req, res) => {
     }
 });
 
-// User Logout
 app.get('/logout', (req, res) => {
     req.session.destroy();
     res.redirect('/');
 });
 
-// User Account
 app.get('/account', requireUserAuth, async (req, res) => {
     const user = await User.findById(req.session.user.id);
     res.render('account', { user: req.session.user, seller: null, accountUser: user });
@@ -237,7 +318,6 @@ app.get('/account', requireUserAuth, async (req, res) => {
 
 // ==================== SELLER AUTH ROUTES ====================
 
-// Seller Registration
 app.get('/seller/register', (req, res) => {
     if (req.session.seller) return res.redirect('/seller/dashboard');
     res.render('seller-register', { error: null, user: null, seller: null });
@@ -251,16 +331,27 @@ app.post('/seller/register', async (req, res) => {
             return res.render('seller-register', { error: 'Email already registered', user: null, seller: null });
         }
         const hashedPassword = await bcrypt.hash(password, 10);
-        const seller = new Seller({ shopName, email, password: hashedPassword, phone, address });
+        const seller = new Seller({ 
+            shopName, 
+            email, 
+            password: hashedPassword, 
+            phone, 
+            address,
+            isProfileComplete: true 
+        });
         await seller.save();
-        req.session.seller = { id: seller._id, shopName: seller.shopName, email: seller.email };
+        req.session.seller = { 
+            id: seller._id, 
+            shopName: seller.shopName, 
+            email: seller.email,
+            isProfileComplete: true
+        };
         res.redirect('/seller/dashboard');
     } catch (err) {
         res.render('seller-register', { error: 'Registration failed', user: null, seller: null });
     }
 });
 
-// Seller Login
 app.get('/seller/login', (req, res) => {
     if (req.session.seller) return res.redirect('/seller/dashboard');
     res.render('seller-login', { error: null, user: null, seller: null });
@@ -273,14 +364,18 @@ app.post('/seller/login', async (req, res) => {
         if (!seller || !(await bcrypt.compare(password, seller.password))) {
             return res.render('seller-login', { error: 'Invalid credentials', user: null, seller: null });
         }
-        req.session.seller = { id: seller._id, shopName: seller.shopName, email: seller.email };
+        req.session.seller = { 
+            id: seller._id, 
+            shopName: seller.shopName, 
+            email: seller.email,
+            isProfileComplete: seller.isProfileComplete
+        };
         res.redirect('/seller/dashboard');
     } catch (err) {
         res.render('seller-login', { error: 'Login failed', user: null, seller: null });
     }
 });
 
-// Seller Logout
 app.get('/seller/logout', (req, res) => {
     req.session.destroy();
     res.redirect('/');
@@ -288,7 +383,6 @@ app.get('/seller/logout', (req, res) => {
 
 // ==================== SELLER DASHBOARD ROUTES ====================
 
-// Seller Dashboard
 app.get('/seller/dashboard', requireSellerAuth, async (req, res) => {
     try {
         const products = await Product.find({ seller: req.session.seller.id });
@@ -307,7 +401,6 @@ app.get('/seller/dashboard', requireSellerAuth, async (req, res) => {
     }
 });
 
-// Seller Account
 app.get('/seller/account', requireSellerAuth, async (req, res) => {
     const sellerData = await Seller.findById(req.session.seller.id);
     res.render('sellerAccount', { user: null, seller: req.session.seller, sellerData: sellerData });
@@ -324,19 +417,14 @@ app.post('/seller/account', requireSellerAuth, async (req, res) => {
     }
 });
 
-// ==================== PRODUCT CRUD ROUTES (SELLER) ====================
+// ==================== PRODUCT CRUD ROUTES ====================
 
-// Add Product
 app.post('/seller/products/add', requireSellerAuth, async (req, res) => {
     try {
         const { name, description, price, category, stock, image } = req.body;
         const product = new Product({
-            name,
-            description,
-            price: parseFloat(price),
-            category,
-            stock: parseInt(stock),
-            image: image || '',
+            name, description, price: parseFloat(price), category,
+            stock: parseInt(stock), image: image || '',
             seller: req.session.seller.id
         });
         await product.save();
@@ -347,7 +435,6 @@ app.post('/seller/products/add', requireSellerAuth, async (req, res) => {
     }
 });
 
-// Update Product
 app.post('/seller/products/update/:id', requireSellerAuth, async (req, res) => {
     try {
         const { name, description, price, category, stock, image } = req.body;
@@ -362,7 +449,6 @@ app.post('/seller/products/update/:id', requireSellerAuth, async (req, res) => {
     }
 });
 
-// Delete Product
 app.post('/seller/products/delete/:id', requireSellerAuth, async (req, res) => {
     try {
         await Product.findOneAndDelete({ _id: req.params.id, seller: req.session.seller.id });
@@ -388,15 +474,10 @@ app.post('/cart/add', requireUserAuth, async (req, res) => {
     try {
         const { productId } = req.body;
         let cart = await Cart.findOne({ user: req.session.user.id });
-        if (!cart) {
-            cart = new Cart({ user: req.session.user.id, items: [] });
-        }
+        if (!cart) cart = new Cart({ user: req.session.user.id, items: [] });
         const existingItem = cart.items.find(item => item.product.toString() === productId);
-        if (existingItem) {
-            existingItem.quantity += 1;
-        } else {
-            cart.items.push({ product: productId, quantity: 1 });
-        }
+        if (existingItem) existingItem.quantity += 1;
+        else cart.items.push({ product: productId, quantity: 1 });
         await cart.save();
         res.json({ success: true });
     } catch (err) {
