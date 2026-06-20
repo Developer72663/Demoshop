@@ -240,7 +240,7 @@ app.get('/account', requireUserAuth, async (req, res) => {
 // Seller Registration
 app.get('/seller/register', (req, res) => {
     if (req.session.seller) return res.redirect('/seller/dashboard');
-    res.render('sellerRegister', { error: null, user: null, seller: null });
+    res.render('seller-register', { error: null, user: null, seller: null });
 });
 
 app.post('/seller/register', async (req, res) => {
@@ -248,7 +248,7 @@ app.post('/seller/register', async (req, res) => {
         const { shopName, email, password, phone, address } = req.body;
         const existingSeller = await Seller.findOne({ email });
         if (existingSeller) {
-            return res.render('sellerRegister', { error: 'Email already registered', user: null, seller: null });
+            return res.render('seller-register', { error: 'Email already registered', user: null, seller: null });
         }
         const hashedPassword = await bcrypt.hash(password, 10);
         const seller = new Seller({ shopName, email, password: hashedPassword, phone, address });
@@ -256,14 +256,14 @@ app.post('/seller/register', async (req, res) => {
         req.session.seller = { id: seller._id, shopName: seller.shopName, email: seller.email };
         res.redirect('/seller/dashboard');
     } catch (err) {
-        res.render('sellerRegister', { error: 'Registration failed', user: null, seller: null });
+        res.render('seller-register', { error: 'Registration failed', user: null, seller: null });
     }
 });
 
 // Seller Login
 app.get('/seller/login', (req, res) => {
     if (req.session.seller) return res.redirect('/seller/dashboard');
-    res.render('sellerLogin', { error: null, user: null, seller: null });
+    res.render('seller-login', { error: null, user: null, seller: null });
 });
 
 app.post('/seller/login', async (req, res) => {
@@ -271,12 +271,12 @@ app.post('/seller/login', async (req, res) => {
         const { email, password } = req.body;
         const seller = await Seller.findOne({ email });
         if (!seller || !(await bcrypt.compare(password, seller.password))) {
-            return res.render('sellerLogin', { error: 'Invalid credentials', user: null, seller: null });
+            return res.render('seller-login', { error: 'Invalid credentials', user: null, seller: null });
         }
         req.session.seller = { id: seller._id, shopName: seller.shopName, email: seller.email };
         res.redirect('/seller/dashboard');
     } catch (err) {
-        res.render('sellerLogin', { error: 'Login failed', user: null, seller: null });
+        res.render('seller-login', { error: 'Login failed', user: null, seller: null });
     }
 });
 
