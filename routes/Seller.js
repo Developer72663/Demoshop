@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const passport = require("passport");
 const Seller = require("../models/Seller");
+
 const { creatTokenForUser } = require("../services/authentication");
 
 const router = Router();
